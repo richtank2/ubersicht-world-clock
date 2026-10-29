@@ -1,0 +1,186 @@
+// World Clock hour-tiles widget for Übersicht
+// Top row is always your Mac's local time ("Your Time").
+// Edit ZONES below to add, remove or reorder cities. Use IANA zone names
+// (full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
+
+const ZONES = [
+  { name: "San Francisco", tz: "America/Los_Angeles" },
+  { name: "London", tz: "Europe/London" },
+  { name: "Singapore", tz: "Asia/Singapore" },
+  { name: "Mumbai", tz: "Asia/Kolkata" },
+  { name: "Phoenix", tz: "America/Phoenix" },
+  { name: "Atlanta", tz: "America/New_York" },
+];
+
+const TILE_COUNT = 24;   // hours shown per row
+const HOURS_BEFORE = 3;  // how many past hours to show left of "now"
+const ACCENT = "#8BA1BB"; // business-hours tile color (your World Time Buddy color)
+
+// Position on screen: change left/bottom to top/right etc. to move it.
+export const className = `
+  left: 24px;
+  bottom: 24px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  color: #f2f4f7;
+`;
+
+// The changing timestamp forces a re-render on every refresh.
+export const command = "date +%s";
+export const refreshFrequency = 30000; // 30 seconds
+
+const uses12h = (() => {
+  try {
+    return !!new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hour12;
+  } catch (e) {
+    return true;
+  }
+})();
+
+const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+const parts = (date, tz) => {
+  const p = {};
+  new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hour: "numeric",
+    minute: "2-digit",
+    hourCycle: "h23",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  })
+    .formatToParts(date)
+    .forEach((x) => (p[x.type] = x.value));
+  return {
+    hour: parseInt(p.hour, 10) % 24,
+    minute: parseInt(p.minute, 10),
+    weekday: p.weekday,
+    month: p.month,
+    day: p.day,
+  };
+};
+
+const offsetLabel = (date, tz) => {
+  try {
+    const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "shortOffset" })
+      .formatToParts(date)
+      .find((x) => x.type === "timeZoneName");
+    return p ? p.value.replace("GMT", "UTC") : "";
+  } catch (e) {
+    return "";
+  }
+};
+
+const bigTime = (date, tz) =>
+  new Intl.DateTimeFormat(undefined, { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(date);
+
+const tileColors = (h) => {
+  if (h >= 8 && h <= 17) return { bg: ACCENT, fg: "#14202e" };       // working hours
+  if ((h >= 6 && h <= 7) || (h >= 18 && h <= 21)) return { bg: "#4d5c6d", fg: "#e6ebf1" }; // edges
+  return { bg: "#262e38", fg: "#9aa6b4" };                          // night
+};
+
+const styles = {
+  panel: {
+    background: "rgba(18, 22, 28, 0.80)",
+    backdropFilter: "blur(14px)",
+    WebkitBackdropFilter: "blur(14px)",
+    borderRadius: "14px",
+    padding: "12px 14px",
+    boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
+  },
+  row: { display: "flex", alignItems: "center", marginBottom: "6px" },
+  label: { width: "150px", paddingRight: "10px", lineHeight: 1.15 },
+  city: { fontSize: "13px", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  sub: { fontSize: "10px", opacity: 0.6, whiteSpace: "nowrap" },
+  time: { fontSize: "17px", fontWeight: 300, fontVariantNumeric: "tabular-nums" },
+  tiles: { display: "flex" },
+  tile: {
+    width: "26px",
+    height: "34px",
+    marginRight: "2px",
+    borderRadius: "4px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "11px",
+    fontVariantNumeric: "tabular-nums",
+    lineHeight: 1.05,
+    boxSizing: "border-box",
+  },
+  small: { fontSize: "8px", opacity: 0.8 },
+};
+
+const Tile = ({ t, tz, isNow }) => {
+  const p = parts(t, tz);
+  const c = tileColors(p.hour);
+  const style = {
+    ...styles.tile,
+    background: c.bg,
+    color: c.fg,
+    border: isNow ? "2px solid #ffffff" : "2px solid transparent",
+  };
+
+  // Midnight tile shows the date, like World Time Buddy.
+  if (p.hour === 0 && p.minute === 0) {
+    return (
+      <div style={{ ...style, background: "#3a4757", color: "#ffffff" }}>
+        <span style={styles.small}>{p.month}</span>
+        <span style={{ fontWeight: 600 }}>{p.day}</span>
+      </div>
+    );
+  }
+
+  const h = uses12h ? p.hour % 12 || 12 : p.hour;
+  const mins = p.minute ? `:${String(p.minute).padStart(2, "0")}` : "";
+  const suffix = uses12h ? (p.hour < 12 ? "am" : "pm") : "";
+
+  return (
+    <div style={style}>
+      <span style={{ fontWeight: 600 }}>{h}</span>
+      {(mins || suffix) && <span style={styles.small}>{mins || suffix}</span>}
+    </div>
+  );
+};
+
+const Row = ({ name, tz, now, columns, isLocal }) => {
+  const p = parts(now, tz);
+  return (
+    <div style={styles.row}>
+      <div style={styles.label}>
+        <div style={styles.city}>{isLocal ? `Your Time · ${name}` : name}</div>
+        <div style={styles.time}>{bigTime(now, tz)}</div>
+        <div style={styles.sub}>
+          {p.weekday} {p.month} {p.day} · {offsetLabel(now, tz)}
+        </div>
+      </div>
+      <div style={styles.tiles}>
+        {columns.map((t, i) => (
+          <Tile key={i} t={t} tz={tz} isNow={i === HOURS_BEFORE} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export const render = () => {
+  const now = new Date();
+  const base = Math.floor(now.getTime() / 3600000) * 3600000;
+  const columns = Array.from({ length: TILE_COUNT }, (_, i) => new Date(base + (i - HOURS_BEFORE) * 3600000));
+
+  const localName =
+    (ZONES.find((z) => z.tz === localTz) || {}).name ||
+    localTz.split("/").pop().replace(/_/g, " ");
+  const others = ZONES.filter((z) => z.tz !== localTz);
+
+  return (
+    <div style={styles.panel}>
+      <Row name={localName} tz={localTz} now={now} columns={columns} isLocal />
+      <div style={{ height: "1px", background: "rgba(255,255,255,0.12)", margin: "2px 0 8px" }} />
+      {others.map((z) => (
+        <Row key={z.tz} name={z.name} tz={z.tz} now={now} columns={columns} />
+      ))}
+    </div>
+  );
+};
